@@ -14,7 +14,7 @@ def init():
         CREATE TABLE IF NOT EXISTS curriculos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             vaga TEXT NOT NULL,
-            message_id TEXT UNIQUE NOT NULL,
+            message_id TEXT NOT NULL,
             remetente TEXT,
             assunto TEXT,
             nome_arquivo TEXT,
@@ -55,7 +55,7 @@ def inserir_curriculo(vaga, message_id, remetente, assunto, nome_arquivo, caminh
     conn = _conn()
     c = conn.cursor()
     c.execute("""
-        INSERT OR IGNORE INTO curriculos
+        INSERT INTO curriculos
         (vaga, message_id, remetente, assunto, nome_arquivo, caminho_pdf, criado_em)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (vaga, message_id, remetente, assunto, nome_arquivo, caminho_pdf,

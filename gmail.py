@@ -3,6 +3,7 @@ import smtplib
 import base64
 import os
 import socket
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -13,6 +14,9 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from config import EMAIL, DESTINATARIO, SCOPES
 
 socket.setdefaulttimeout(30)
+
+MAX_PDF_BYTES = 10 * 1024 * 1024
+MAX_PDFS_POR_EMAIL = 5
 
 
 def obter_credenciais():
@@ -70,17 +74,46 @@ def buscar_nao_lidos():
 
 def extrair_pdf(msg, pasta="pdfs"):
     os.makedirs(pasta, exist_ok=True)
+    anexos = []
+
     for part in msg.walk():
         if part.get_content_maintype() == "multipart":
             continue
         filename = part.get_filename()
         if not filename or not filename.lower().endswith(".pdf"):
             continue
-        caminho = os.path.join(pasta, filename)
+
+        # Sanitiza nome (evita path traversal)
+        nome_limpo = os.path.basename(filename)
+        nome_limpo = "".join(c for c in nome_limpo if c.isalnum() or c in " ._-()").strip()
+        if not nome_limpo.lower().endswith(".pdf"):
+            nome_limpo += ".pdf"
+        if len(nome_limpo) > 150:
+            nome_limpo = nome_limpo[:145] + ".pdf"
+
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+
+        if len(payload) > MAX_PDF_BYTES:
+            print(f"  [PDF] Ignorado {nome_limpo}: {len(payload)} bytes > limite", flush=True)
+            continue
+
+        if not payload.startswith(b"%PDF-"):
+            print(f"  [PDF] Ignorado {nome_limpo}: não é PDF real", flush=True)
+            continue
+
+        nome_final = f"{int(time.time()*1000)}_{nome_limpo}"
+        caminho = os.path.join(pasta, nome_final)
+
         with open(caminho, "wb") as f:
-            f.write(part.get_payload(decode=True))
-        return caminho, filename
-    return None, None
+            f.write(payload)
+
+        anexos.append((caminho, nome_limpo))
+        if len(anexos) >= MAX_PDFS_POR_EMAIL:
+            break
+
+    return anexos
 
 
 def marcar_como_lido(creds, num_imap):

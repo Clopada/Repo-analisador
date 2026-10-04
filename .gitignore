@@ -1,11 +1,9 @@
-# Ambiente Virtual
+.env
+token.json
+credentials.json
+triagem.db
+pdfs/
 .venv/
-venv/
-ENV/
-env/
-
-# Caches e arquivos temporários do Python
 __pycache__/
-__pycache__
-*.py[cod]
-*$py.class
+*.log
+*.pyc

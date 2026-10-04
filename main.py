@@ -8,9 +8,12 @@ import db
 import gmail
 import ia
 import report
-from config import LIMITE_LOTE
+from config import LIMITE_LOTE, INTERVALO_MINUTOS
 
 VAGA_REGEX = re.compile(r"VAGA[\s:\-]*([^\r\n]+)", re.IGNORECASE)
+
+MAX_CHARS_POR_PDF = 30_000
+MAX_TOTAL_CHARS = 200_000
 
 
 def extrair_vaga(assunto):
@@ -31,6 +34,7 @@ def processar_vaga(vaga, limite):
     print(f"[{vaga}] Processando lote de {len(curriculos)} currículos...", flush=True)
 
     textos = []
+    total_chars = 0
     for c in curriculos:
         try:
             from pypdf import PdfReader
@@ -39,6 +43,14 @@ def processar_vaga(vaga, limite):
         except Exception as e:
             print(f"  [PDF] Erro ao ler {c['caminho_pdf']}: {e}", flush=True)
             texto = ""
+
+        if len(texto) > MAX_CHARS_POR_PDF:
+            texto = texto[:MAX_CHARS_POR_PDF] + "\n[... texto truncado ...]"
+
+        total_chars += len(texto)
+        if total_chars > MAX_TOTAL_CHARS:
+            print(f"  [PDF] Limite total de texto atingido, ignorando os demais.", flush=True)
+            break
 
         if not texto.strip():
             print(f"  [PDF] Aviso: {c['nome_arquivo']} sem texto extraível", flush=True)
@@ -134,13 +146,15 @@ def ciclo():
                 gmail.marcar_como_lido(creds, num_imap)
                 continue
 
-            caminho, nome_arquivo = gmail.extrair_pdf(msg)
-            if not caminho:
+            anexos = gmail.extrair_pdf(msg)
+            if not anexos:
                 continue
 
-            db.inserir_curriculo(vaga, message_id, remetente, assunto, nome_arquivo, caminho)
+            for caminho, nome_arquivo in anexos:
+                db.inserir_curriculo(vaga, message_id, remetente, assunto, nome_arquivo, caminho)
+                print(f"  + {vaga} <- {nome_arquivo}", flush=True)
+
             gmail.marcar_como_lido(creds, num_imap)
-            print(f"  + {vaga} <- {nome_arquivo}", flush=True)
         except Exception as e:
             print(f"Erro processando e-mail: {e}", flush=True)
 
@@ -151,14 +165,14 @@ def ciclo():
 def main():
     db.init()
     os.makedirs("pdfs", exist_ok=True)
-    print(f"Triagem iniciada. LIMITE_LOTE = {LIMITE_LOTE}. Ctrl+C para sair.", flush=True)
+    print(f"Triagem iniciada. LIMITE_LOTE = {LIMITE_LOTE}. Intervalo = {INTERVALO_MINUTOS} min.", flush=True)
     while True:
         try:
             ciclo()
         except Exception as e:
             print(f"Erro no ciclo: {e}", flush=True)
-        print(f"Aguardando {5} minutos...", flush=True)
-        time.sleep(5 * 60)
+        print(f"Aguardando {INTERVALO_MINUTOS} minutos...", flush=True)
+        time.sleep(INTERVALO_MINUTOS * 2)
 
 
 if __name__ == "__main__":
