@@ -6,29 +6,56 @@ def _escapar(s):
 
 
 def _cor_badge(decisao):
-    d = decisao.lower()
-    if "aprov" in d: return "#dcfce7"
-    if "reprov" in d: return "#fee2e2"
-    if "pendent" in d: return "#fef3c7"
+    d = str(decisao or "").lower()
+    # Novos critérios de decisão
+    if "priorizar revisão humana" in d:
+        return "#fef3c7"  # Amarelo
+    if "revisar manualmente" in d:
+        return "#dbeafe"  # Azul
+    if "evidência insuficiente" in d:
+        return "#fecaca"  # Vermelho
+    if "aprov" in d:
+        return "#dcfce7"
+    if "reprov" in d:
+        return "#fee2e2"
+    if "pendent" in d:
+        return "#fef3c7"
     return "#e2e8f0"
 
 
-def gerar_corpo_email(vaga, avaliacoes):
-    ordenados = sorted(
-        avaliacoes,
-        key=lambda c: c.get("avaliacao_vaga", {}).get("score_geral", 0),
+def _score(avaliacao):
+    """Converte o score para número, mesmo se a IA devolver texto."""
+    try:
+        return float(avaliacao.get("score_geral", 0))
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
+def _score_texto(valor):
+    return int(valor) if float(valor).is_integer() else round(float(valor), 1)
+
+
+def _ordenar(avaliacoes):
+    itens = [c for c in (avaliacoes or []) if isinstance(c, dict)]
+    return sorted(
+        itens,
+        key=lambda c: _score(c.get("avaliacao_vaga") or {}),
         reverse=True
     )
 
+
+def gerar_corpo_email(vaga, avaliacoes):
+    ordenados = _ordenar(avaliacoes)
+
     linhas = ""
     for i, c in enumerate(ordenados, 1):
-        ident = c.get("identificacao_candidato", {})
-        aval = c.get("avaliacao_vaga", {})
+        ident = c.get("identificacao_candidato") or {}
+        aval = c.get("avaliacao_vaga") or {}
         nome = _escapar(ident.get("nome", "N/A"))
         cargo = _escapar(ident.get("cargo_declarado", "N/A"))
-        score = aval.get("score_geral", 0)
+        score = _score_texto(_score(aval))
         decisao = _escapar(aval.get("decisao_triagem", "Em Análise"))
-        cor = _cor_badge(decisao)
+        cor = _cor_badge(aval.get("decisao_triagem"))
 
         linhas += f"""<tr>
             <td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:bold;">#{i}</td>
@@ -48,6 +75,9 @@ def gerar_corpo_email(vaga, avaliacoes):
     <p style="margin:0;color:#0369a1;font-weight:bold;">Vaga: {_escapar(vaga.title())}</p>
     <p style="margin:4px 0 0;color:#075985;font-size:14px;">Total: <strong>{len(ordenados)}</strong></p>
   </div>
+  <div style="background:#fefce8;border-left:4px solid #ca8a04;padding:12px 15px;margin-bottom:20px;border-radius:4px;">
+    <p style="margin:0;color:#713f12;font-size:14px;"><strong>Apoio à revisão humana:</strong> scores e recomendações são indicativos, não decisões de contratação. Revise os currículos e os critérios relacionados à vaga antes de qualquer decisão.</p>
+  </div>
   <h2 style="color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:8px;">🏆 Ranking de Candidatos</h2>
   <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px;">
     <thead><tr style="background:#f1f5f9;text-align:left;color:#475569;">
@@ -66,17 +96,13 @@ def gerar_corpo_email(vaga, avaliacoes):
 
 
 def gerar_anexo_relatorio(vaga, avaliacoes, arquivos_originais):
-    ordenados = sorted(
-        avaliacoes,
-        key=lambda c: c.get("avaliacao_vaga", {}).get("score_geral", 0),
-        reverse=True
-    )
+    ordenados = _ordenar(avaliacoes)
 
     detalhes = ""
     for i, c in enumerate(ordenados, 1):
-        ident = c.get("identificacao_candidato", {})
-        aval = c.get("avaliacao_vaga", {})
-        contato = ident.get("contato", {}) or {}
+        ident = c.get("identificacao_candidato") or {}
+        aval = c.get("avaliacao_vaga") or {}
+        contato = ident.get("contato") or {}
 
         nome = _escapar(ident.get("nome", "N/A"))
         cargo = _escapar(ident.get("cargo_declarado", "N/A"))
@@ -84,10 +110,10 @@ def gerar_anexo_relatorio(vaga, avaliacoes, arquivos_originais):
         email = _escapar(contato.get("email", "N/A"))
         tel = _escapar(contato.get("telefone", "N/A"))
         loc = _escapar(contato.get("localizacao", "N/A"))
-        score = aval.get("score_geral", 0)
+        score = _score_texto(_score(aval))
         decisao = _escapar(aval.get("decisao_triagem", "Em Análise"))
         parecer = _escapar(aval.get("justificativa_coerencia", "Sem justificativa."))
-        cor = _cor_badge(decisao)
+        cor = _cor_badge(aval.get("decisao_triagem"))
 
         idx = c.get("indice_curriculo", i)
         arq = next((a for a in arquivos_originais if a.get("posicao") == idx), None)
@@ -115,5 +141,6 @@ def gerar_anexo_relatorio(vaga, avaliacoes, arquivos_originais):
 <div style="max-width:800px;background:#fff;margin:0 auto;border-radius:8px;padding:25px;">
   <h1 style="margin-top:0;">📊 Relatório Completo — {_escapar(vaga.title())}</h1>
   <p style="color:#475569;">Total: <strong>{len(ordenados)}</strong></p>
+  <p style="padding:12px 15px;background:#fefce8;border-left:4px solid #ca8a04;color:#713f12;font-size:14px;"><strong>Apoio à revisão humana:</strong> scores e recomendações são indicativos, não decisões de contratação. Revise os currículos e os critérios relacionados à vaga antes de qualquer decisão.</p>
   {detalhes}
 </div></body></html>"""
